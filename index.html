@@ -128,11 +128,13 @@ mark{background:var(--acc2);color:#04231f;border-radius:3px;padding:0 1px}
   <div class="wrap">
     <div class="stat" id="stats"></div>
     <div class="card days" id="dayProg"></div>
+    <div class="card days hidden" id="picProg"></div>
     <div class="searchbar">
       <div class="scanrow">
         <input id="inSearch" placeholder="🔍 Scan / ketik barcode atau nama…" autocomplete="off">
         <button class="btn sm" id="btnCam" title="Kamera">📷</button>
       </div>
+      <div class="chips" style="margin-top:8px" id="tugasChips"></div>
       <div class="chips" style="margin-top:8px" id="dayChips"></div>
       <div class="chips" style="margin-top:8px" id="filterChips">
         <span class="chip on" data-f="all">Semua</span>
@@ -176,13 +178,16 @@ mark{background:var(--acc2);color:#04231f;border-radius:3px;padding:0 1px}
 /* ============ STATE & KONSTAN ============ */
 // URL Web App /exec ditanam di sini → tim tak perlu isi apa pun saat buka app.
 var DEFAULT_EXEC = 'https://script.google.com/macros/s/AKfycbw5CJ2clcy7ZWMBis5nKRyC8ha0nltgIgPAwtqSN8UVlF6lXhu35_SpUAugtV-EZoCl/exec';
-var LS = { exec:'rc_exec', theme:'rc_theme', user:'rc_user', admin:'rc_admin', day:'rc_day', cache:'rc_cache2' };
+var LS = { exec:'rc_exec', theme:'rc_theme', user:'rc_user', admin:'rc_admin', day:'rc_day', tf:'rc_tf', cache:'rc_cache2' };
 var DAYS_DEFAULT = ['SENIN','SELASA','RABU','KAMIS','JUMAT'];
 function dayShort(d){ return d ? d.charAt(0) + d.slice(1,3).toLowerCase() : ''; } // SENIN -> Sen
+function firstName(n){ return String(n||'').trim().split(/\s+/)[0]; }
 var state = {
   exec:'', user:'', isAdmin:false, pics:[],
-  days: DAYS_DEFAULT.slice(), day:'', items:[], byBarcode:{}, byKode:{}, filter:'all', q:''
+  days: DAYS_DEFAULT.slice(), day:'', tf:'all', items:[], byBarcode:{}, byKode:{}, filter:'all', q:''
 };
+// jumlah item yang ditugaskan ke user login (0 = tidak ikut plotting → bebas isi semua)
+function myCount(){ var u=normKey(state.user), n=0; state.items.forEach(function(it){ if(it.tugas && normKey(it.tugas)===u) n++; }); return n; }
 var scanner=null;
 
 /* ============ HELPER ============ */
@@ -287,18 +292,67 @@ function setItems(items, days){
   if(days && days.length) state.days=days;
   indexItems();
 }
-function loadSheet(){
+function applyTf(){
+  // default: Tugasku bila user ada di plotting; tak ada tugas → paksa Semua
+  var saved = localStorage.getItem(LS.tf);
+  state.tf = (myCount()>0) ? (saved||'me') : 'all';
+}
+function loadSheet(manual){
   show('scList'); syncCtx(); renderDayChips();
   var shownCache=false, c=cacheRead();
-  if(c && c.items && c.items.length){ setItems(c.items, c.days); renderList(); focusScan(); shownCache=true; }
+  if(c && c.items && c.items.length){ setItems(c.items, c.days); applyTf(); renderTugasChips(); renderList(); focusScan(); shownCache=true; }
   else $('listCard').innerHTML='<div style="padding:20px" class="muted">Memuat item…</div>';
+  var before = state.items.length;
   postExec({action:'sheet'}).then(function(j){
     if(!j || !j.ok || !j.items) throw new Error((j&&j.error)||'bad');
-    setItems(j.items, j.days); renderDayChips(); renderList(); focusScan(); cacheWrite();
+    setItems(j.items, j.days); applyTf(); renderTugasChips(); renderDayChips(); renderList(); focusScan(); cacheWrite();
+    var diff = state.items.length - before;
+    if(before === 0){ if(manual) toast('Data dimuat: '+state.items.length+' item','ok'); }
+    else if(diff > 0) toast('+'+diff+' item RECOUNT baru — hari & tugas otomatis','ok');
+    else if(manual) toast('Data segar ✓ tidak ada item baru','ok');
   }).catch(function(e){
     if(!shownCache) $('listCard').innerHTML='<div style="padding:20px" class="muted">Gagal memuat. Cek koneksi / URL /exec.</div>';
     else toast('Gagal menyegarkan — menampilkan data tersimpan','warn');
   });
+}
+
+/* ============ TUGAS (plotting tim) ============ */
+function renderTugasChips(){
+  var tc=$('tugasChips'); tc.innerHTML='';
+  var n=myCount();
+  var defs=[{t:'me',label:'👤 Tugasku ('+n+')'},{t:'all',label:'Semua tim'}];
+  defs.forEach(function(d){
+    var el=document.createElement('span');
+    el.className='chip'+(state.tf===d.t?' on':''); el.textContent=d.label; el.dataset.t=d.t;
+    el.onclick=function(){
+      if(d.t==='me' && myCount()===0){ toast('Kamu tidak ada di plotting — pakai Semua tim','warn'); return; }
+      [].forEach.call(tc.children,function(x){x.classList.remove('on');});
+      el.classList.add('on'); state.tf=d.t;
+      localStorage.setItem(LS.tf,state.tf); renderList();
+    };
+    tc.appendChild(el);
+  });
+}
+function inTugas(it){ return state.tf!=='me' || (it.tugas && normKey(it.tugas)===normKey(state.user)); }
+function renderPicProg(){
+  var box=$('picProg');
+  if(state.tf!=='all'){ box.classList.add('hidden'); return; }
+  var scope=state.items.filter(inDay);
+  var order=[], byPic={};
+  scope.forEach(function(it){
+    if(!it.tugas) return;
+    if(!byPic[it.tugas]){ byPic[it.tugas]={tot:0,isi:0}; order.push(it.tugas); }
+    byPic[it.tugas].tot++; if(it.qty!=null) byPic[it.tugas].isi++;
+  });
+  if(!order.length){ box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  box.innerHTML = order.map(function(p){
+    var b=byPic[p], pct=b.tot?Math.round(b.isi/b.tot*100):0;
+    return '<div class="dayrow'+(b.tot&&b.isi>=b.tot?' full':'')+'">'+
+      '<span class="dl" style="width:70px">'+esc(firstName(p))+'</span>'+
+      '<span class="dbar"><i style="width:'+pct+'%"></i></span>'+
+      '<span class="dn">'+b.isi+'/'+b.tot+' · '+pct+'%</span></div>';
+  }).join('');
 }
 
 /* ============ HARI ============ */
@@ -345,12 +399,12 @@ function renderDayProg(){
 /* ============ RENDER LIST ============ */
 function inDay(it){ return !state.day || it.hari===state.day; }
 function renderList(){
-  renderDayProg();
-  var items=state.items.filter(inDay);
+  renderDayProg(); renderPicProg();
+  var items=state.items.filter(inDay).filter(inTugas);
   var q=state.q.trim();
   var stats={total:items.length,isi:0,belum:0};
   items.forEach(function(it){ if(it.qty!=null)stats.isi++; else stats.belum++; });
-  var lbl = state.day ? dayShort(state.day) : 'Item';
+  var lbl = (state.tf==='me'?'Tugasku':'') || (state.day ? dayShort(state.day) : 'Item');
   $('stats').innerHTML =
     '<div class="s"><b>'+stats.total+'</b><span>'+esc(lbl)+'</span></div>'+
     '<div class="s"><b style="color:var(--ok)">'+stats.isi+'</b><span>Terisi</span></div>'+
@@ -370,7 +424,8 @@ function itemHTML(it,q){
   var i=it._i;
   var badge = it.qty!=null ? '<span class="badge b-isi">✓ '+esc(it.qty)+'</span>'
             : '<span class="badge b-belum">Belum</span>';
-  var sub=[(!state.day&&it.hari)?dayShort(it.hari):'',it.brand,it.rack,it.barcode].filter(Boolean).join(' · ');
+  var sub=[(!state.day&&it.hari)?dayShort(it.hari):'',it.brand,it.rack,it.barcode,
+    (state.tf==='all'&&it.tugas)?('→ '+firstName(it.tugas)):''].filter(Boolean).join(' · ');
   return '<div class="item" data-i="'+i+'">'+
     '<div style="min-width:0"><div class="nm">'+hl(esc(it.nama),q)+'</div><div class="sub">'+hl(esc(sub),q)+'</div></div>'+
     '<div class="rt">'+badge+'</div></div>';
@@ -411,9 +466,15 @@ function focusScan(){ setTimeout(function(){ var el=$('inSearch'); if(el&&!docum
 /* ============ EDITOR ============ */
 var editing=null;
 function openEditor(it){
+  // TUGAS hanya filter tampilan — siapa pun boleh mengisi item siapa pun
+  // (cover kalau ada anggota tim yang tidak masuk). Cukup diberi info.
+  if(it.tugas && normKey(it.tugas)!==normKey(state.user) && myCount()>0){
+    toast('ℹ️ Item ini plotting-nya '+firstName(it.tugas),'warn');
+  }
   editing=it;
   var sel=[
-    ['Hari',dayShort(it.hari)||'-'],['Kategori',it.kategori],['Brand',it.brand],
+    ['Hari',dayShort(it.hari)||'-'],['Tugas',firstName(it.tugas)||'-'],
+    ['Kategori',it.kategori],['Brand',it.brand],
     ['Satuan',it.satuan],['Rack',it.rack]
   ].map(function(k){return '<div class="kv"><span class="muted">'+k[0]+'</span><b>'+esc(String(k[1]||'-'))+'</b></div>';}).join('');
   var pic=it.pic, wkt=it.waktu||'';
@@ -498,7 +559,7 @@ $('miTheme').onclick=function(){ var d=document.documentElement.classList.toggle
 $('miUser').onclick=function(){ $('menuBack').classList.add('hidden'); localStorage.removeItem(LS.user); localStorage.removeItem(LS.admin); state.user=''; state.isAdmin=false; startLogin(); };
 $('miSettings').onclick=function(){ $('menuBack').classList.add('hidden'); $('inExec').value=state.exec; show('scSetup'); };
 $('btnUser').onclick=$('miUser').onclick;
-$('btnReload').onclick=function(){ if($('scList').classList.contains('hidden')) boot(); else loadSheet(); };
+$('btnReload').onclick=function(){ if($('scList').classList.contains('hidden')) boot(); else loadSheet(true); };
 function syncCtx(){ $('ctx').textContent=[state.user, state.day?dayShort(state.day):'Semua hari'].filter(Boolean).join(' · '); }
 
 // jaga fokus untuk scanner fisik

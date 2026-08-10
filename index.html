@@ -55,15 +55,6 @@ label{font-size:12px;color:var(--mut);font-weight:600;display:block;margin:10px 
 :root.dark .b-isi{background:#0f2e1c;color:#4ade80}
 mark{background:var(--acc2);color:#04231f;border-radius:3px;padding:0 1px}
 
-/* progres per hari */
-.days{padding:10px 12px;margin-bottom:8px}
-.dayrow{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px}
-.dayrow .dl{width:52px;font-weight:700}
-.dayrow .dn{width:64px;text-align:right;color:var(--mut);white-space:nowrap}
-.dbar{flex:1;height:8px;background:var(--chip);border:1px solid var(--line);border-radius:99px;overflow:hidden}
-.dbar i{display:block;height:100%;background:var(--acc2);border-radius:99px}
-.dayrow.full .dbar i{background:var(--ok)}
-
 /* editor sheet */
 .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:40;display:flex;align-items:flex-end;justify-content:center}
 .sheet{background:var(--card);width:100%;max-width:760px;border-radius:18px 18px 0 0;padding:16px;max-height:94vh;overflow:auto}
@@ -127,8 +118,6 @@ mark{background:var(--acc2);color:#04231f;border-radius:3px;padding:0 1px}
 <div id="scList" class="hidden">
   <div class="wrap">
     <div class="stat" id="stats"></div>
-    <div class="card days" id="dayProg"></div>
-    <div class="card days hidden" id="picProg"></div>
     <div class="searchbar">
       <div class="scanrow">
         <input id="inSearch" placeholder="🔍 Scan / ketik barcode atau nama…" autocomplete="off">
@@ -179,7 +168,7 @@ mark{background:var(--acc2);color:#04231f;border-radius:3px;padding:0 1px}
 // URL Web App /exec ditanam di sini → tim tak perlu isi apa pun saat buka app.
 var DEFAULT_EXEC = 'https://script.google.com/macros/s/AKfycbw5CJ2clcy7ZWMBis5nKRyC8ha0nltgIgPAwtqSN8UVlF6lXhu35_SpUAugtV-EZoCl/exec';
 var LS = { exec:'rc_exec', theme:'rc_theme', user:'rc_user', admin:'rc_admin', day:'rc_day', tf:'rc_tf', cache:'rc_cache2' };
-var DAYS_DEFAULT = ['SENIN','SELASA','RABU','KAMIS','JUMAT'];
+var DAYS_DEFAULT = ['SENIN','SELASA','RABU','KAMIS'];
 function dayShort(d){ return d ? d.charAt(0) + d.slice(1,3).toLowerCase() : ''; } // SENIN -> Sen
 function firstName(n){ return String(n||'').trim().split(/\s+/)[0]; }
 var state = {
@@ -334,26 +323,6 @@ function renderTugasChips(){
   });
 }
 function inTugas(it){ return state.tf!=='me' || (it.tugas && normKey(it.tugas)===normKey(state.user)); }
-function renderPicProg(){
-  var box=$('picProg');
-  if(state.tf!=='all'){ box.classList.add('hidden'); return; }
-  var scope=state.items.filter(inDay);
-  var order=[], byPic={};
-  scope.forEach(function(it){
-    if(!it.tugas) return;
-    if(!byPic[it.tugas]){ byPic[it.tugas]={tot:0,isi:0}; order.push(it.tugas); }
-    byPic[it.tugas].tot++; if(it.qty!=null) byPic[it.tugas].isi++;
-  });
-  if(!order.length){ box.classList.add('hidden'); return; }
-  box.classList.remove('hidden');
-  box.innerHTML = order.map(function(p){
-    var b=byPic[p], pct=b.tot?Math.round(b.isi/b.tot*100):0;
-    return '<div class="dayrow'+(b.tot&&b.isi>=b.tot?' full':'')+'">'+
-      '<span class="dl" style="width:70px">'+esc(firstName(p))+'</span>'+
-      '<span class="dbar"><i style="width:'+pct+'%"></i></span>'+
-      '<span class="dn">'+b.isi+'/'+b.tot+' · '+pct+'%</span></div>';
-  }).join('');
-}
 
 /* ============ HARI ============ */
 function renderDayChips(){
@@ -374,32 +343,9 @@ function renderDayChips(){
     };
   });
 }
-function renderDayProg(){
-  var byDay={}, other={tot:0,isi:0};
-  state.days.forEach(function(d){ byDay[d]={tot:0,isi:0}; });
-  state.items.forEach(function(it){
-    var b = byDay[it.hari] || other;
-    b.tot++; if(it.qty!=null) b.isi++;
-  });
-  var html = state.days.map(function(d){
-    var b=byDay[d], pct=b.tot?Math.round(b.isi/b.tot*100):0;
-    return '<div class="dayrow'+(b.tot&&b.isi>=b.tot?' full':'')+'">'+
-      '<span class="dl">'+dayShort(d)+'</span>'+
-      '<span class="dbar"><i style="width:'+pct+'%"></i></span>'+
-      '<span class="dn">'+b.isi+'/'+b.tot+' · '+pct+'%</span></div>';
-  }).join('');
-  if(other.tot){
-    var po=other.tot?Math.round(other.isi/other.tot*100):0;
-    html+='<div class="dayrow"><span class="dl">?</span><span class="dbar"><i style="width:'+po+'%"></i></span>'+
-      '<span class="dn">'+other.isi+'/'+other.tot+' · '+po+'%</span></div>';
-  }
-  $('dayProg').innerHTML = html || '<div class="muted" style="font-size:12px">Belum ada item.</div>';
-}
-
 /* ============ RENDER LIST ============ */
 function inDay(it){ return !state.day || it.hari===state.day; }
 function renderList(){
-  renderDayProg(); renderPicProg();
   var items=state.items.filter(inDay).filter(inTugas);
   var q=state.q.trim();
   var stats={total:items.length,isi:0,belum:0};

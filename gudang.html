@@ -314,6 +314,8 @@ function renderWhChips(){
       [].forEach.call(wc.children,function(x){x.classList.remove('on');});
       el.classList.add('on'); state.wh=w;
       localStorage.setItem(LS.wh,w); syncCtx();
+      // gudang ini tak ada assignment utk user → jangan terjebak list kosong
+      if(state.tf==='me' && myCount()===0) state.tf='all';
       renderTugasChips(); // jumlah Tugasku bisa beda per gudang
       renderList();
     };
